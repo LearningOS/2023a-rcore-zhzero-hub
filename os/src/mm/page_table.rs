@@ -147,6 +147,10 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
+    #[allow(unused)]
+    pub fn push_page(&mut self, frame: FrameTracker) {
+        self.frames.push(frame);
+    }
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table

@@ -16,6 +16,7 @@ mod task;
 
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -71,6 +72,10 @@ lazy_static! {
 }
 
 impl TaskManager {
+    /// get current task id
+    pub fn get_current_task_id(&self) -> usize {
+        self.inner.exclusive_access().current_task
+    }
     /// Run the first task in task list.
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
@@ -79,6 +84,9 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        if next_task.start_time == 0 {
+            next_task.start_time = get_time_ms();
+        }
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -141,6 +149,9 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            if inner.tasks[next].start_time == 0 {
+                inner.tasks[next].start_time = get_time_ms();
+            }
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -152,6 +163,12 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// get current task
+    fn get_current_task(&self) -> *const TaskControlBlock {
+        let inner = self.inner.exclusive_access();
+        &inner.tasks[inner.current_task] as *const TaskControlBlock
     }
 }
 
@@ -201,4 +218,9 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// get current task
+pub fn get_current_task() -> *const TaskControlBlock {
+    TASK_MANAGER.get_current_task()
 }
