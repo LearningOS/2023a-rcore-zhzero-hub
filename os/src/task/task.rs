@@ -1,13 +1,15 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{TRAP_CONTEXT_BASE, MAX_SYSCALL_NUM};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
+
+pub const BIG_STRIDE: isize = 10000;
 
 /// Task control block structure
 ///
@@ -29,13 +31,20 @@ impl TaskControlBlock {
     pub fn inner_exclusive_access(&self) -> RefMut<'_, TaskControlBlockInner> {
         self.inner.exclusive_access()
     }
-    /// Get the address of app's page table
-    pub fn get_user_token(&self) -> usize {
-        let inner = self.inner_exclusive_access();
-        inner.memory_set.token()
+
+    /// add passed value
+    pub fn add_passed(&self) {
+        self.inner.exclusive_access().add_passed_value();
     }
+    // Get the address of app's page table
+    // pub fn get_user_token(&self) -> usize {
+    //     trace!("TCB get user token");
+    //     let inner: RefMut<'_, TaskControlBlockInner> = self.inner_exclusive_access();
+    //     inner.memory_set.token()
+    // }
 }
 
+/// TaskControlBlockInner
 pub struct TaskControlBlockInner {
     /// The physical page number of the frame where the trap context is placed
     pub trap_cx_ppn: PhysPageNum,
@@ -68,9 +77,30 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The task call time
+    pub run_time: [u32; MAX_SYSCALL_NUM],
+
+    /// The task start time
+    pub start_time: usize,
+
+    /// priori
+    pub priori: isize,
+
+    /// passed
+    pub passed: isize,
 }
 
 impl TaskControlBlockInner {
+    /// add passed value
+    pub fn add_passed_value(&mut self) {
+        self.passed += BIG_STRIDE / self.priori;
+    }
+
+    /// get task context
+    pub fn get_task_context(&self) -> &TaskContext {
+        &self.task_cx
+    }
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
@@ -82,6 +112,7 @@ impl TaskControlBlockInner {
     fn get_status(&self) -> TaskStatus {
         self.task_status
     }
+    /// is zombie
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
@@ -118,6 +149,10 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    start_time: 0,
+                    run_time: [0; MAX_SYSCALL_NUM],
+                    priori: 16,
+                    passed: 0,
                 })
             },
         };
@@ -191,6 +226,10 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    start_time: 0,
+                    run_time: [0; MAX_SYSCALL_NUM],
+                    priori: parent_inner.priori,
+                    passed: parent_inner.passed,
                 })
             },
         });
