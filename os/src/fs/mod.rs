@@ -4,6 +4,7 @@ mod inode;
 mod stdio;
 
 use crate::mm::UserBuffer;
+pub use inode::ROOT_INODE;
 
 /// trait File for all file types
 pub trait File: Send + Sync {
@@ -46,5 +47,5 @@ bitflags! {
     }
 }
 
-pub use inode::{list_apps, open_file, OSInode, OpenFlags};
+pub use inode::{list_apps, open_file, link_file, unlink_file, OSInode, OpenFlags};
 pub use stdio::{Stdin, Stdout};

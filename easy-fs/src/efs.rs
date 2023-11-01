@@ -13,6 +13,7 @@ pub struct EasyFileSystem {
     pub inode_bitmap: Bitmap,
     ///Data bitmap
     pub data_bitmap: Bitmap,
+    ///inode area start block
     inode_area_start_block: u32,
     data_area_start_block: u32,
 }
@@ -110,6 +111,10 @@ impl EasyFileSystem {
         let (block_id, block_offset) = efs.lock().get_disk_inode_pos(0);
         // release efs lock
         Inode::new(block_id, block_offset, Arc::clone(efs), block_device)
+    }
+    /// get inode area
+    pub fn get_start_area(&self) -> u64 {
+        self.data_area_start_block as u64
     }
     /// Get inode by id
     pub fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {

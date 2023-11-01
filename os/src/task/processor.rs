@@ -47,6 +47,7 @@ impl Processor {
 }
 
 lazy_static! {
+    /// processor
     pub static ref PROCESSOR: UPSafeCell<Processor> = unsafe { UPSafeCell::new(Processor::new()) };
 }
 
@@ -56,11 +57,13 @@ pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
         if let Some(task) = fetch_task() {
+            task.add_passed();
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            trace!("run task user token: {:#x}", task_inner.get_user_token());
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -88,8 +91,7 @@ pub fn current_task() -> Option<Arc<TaskControlBlock>> {
 
 /// Get the current user token(addr of page table)
 pub fn current_user_token() -> usize {
-    let task = current_task().unwrap();
-    task.get_user_token()
+    current_task().unwrap().inner_exclusive_access().get_user_token()
 }
 
 ///Get the mutable reference to trap context of current task

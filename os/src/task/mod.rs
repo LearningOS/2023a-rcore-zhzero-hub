@@ -23,19 +23,22 @@ mod switch;
 mod task;
 
 use crate::fs::{open_file, OpenFlags};
+use crate::{mm::{translated_str}};
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 pub use context::TaskContext;
 use lazy_static::*;
-pub use manager::{fetch_task, TaskManager};
+pub use manager::{fetch_task, TaskManager, TASK_MANAGER};
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus, TaskControlBlockInner};
 
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    Processor, PROCESSOR,
 };
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -46,6 +49,7 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    trace!("run task user token: {}", task_inner.get_user_token());
     drop(task_inner);
     // ---- release current PCB
 
@@ -64,6 +68,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     let task = take_current_task().unwrap();
 
     let pid = task.getpid();
+    trace!("exit currnet and run next, pid {}", pid);
     if pid == IDLE_PID {
         println!(
             "[kernel] Idle process exit with exit_code {} ...",
@@ -118,5 +123,51 @@ lazy_static! {
 
 ///Add init process to the manager
 pub fn add_initproc() {
+    trace!("add init proc");
     add_task(INITPROC.clone());
+}
+
+/// add syscall
+pub fn add_syscall(syscall_id: usize) {
+    PROCESSOR.exclusive_access().current().unwrap().inner_exclusive_access().run_time[syscall_id] += 1;
+}
+
+/// get app data by name
+pub fn get_app_data_by_name(path: &str) -> Option<Vec<u8>> {
+    if let Some(app_inode) = open_file(path, OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+        Some(all_data)
+    } else {
+        None
+    }
+}
+
+/// create a new process
+pub fn new_process(path: *const u8) -> isize {
+    // ---- access parent PCB exclusively
+    // alloc a pid and a kernel stack in kernel space
+    let token = current_user_token();
+    println!("new process {:?}, {}", path, translated_str(token, path));
+    // println!("current user token");
+    let path = translated_str(token, path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let task_control_block = Arc::new(TaskControlBlock::new(data.as_ref()));
+        let pid = task_control_block.getpid() as isize;
+        println!("pid: {}", pid);
+        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        // we do not have to move to next instruction since we have done it before
+        // for child process, fork returns 0
+        trap_cx.x[10] = 0;
+        // add child
+        let bind = PROCESSOR.exclusive_access().current().unwrap();
+        let mut parent_inner = bind.inner_exclusive_access();
+        parent_inner.children.push(task_control_block.clone());
+        TASK_MANAGER.exclusive_access().add(task_control_block);
+        println!("new process finished");
+        pid
+    } else {
+        println!("get app data by name failed");
+        -1
+    }
+
 }

@@ -271,6 +271,13 @@ impl MemorySet {
         }
         memory_set
     }
+    /// create a new address
+    pub fn create_new() -> Self {
+        let mut memory_set = Self::new_bare();
+        // map trampoline
+        memory_set.map_trampoline();
+        memory_set
+    }
     /// Change page table by writing satp CSR Register.
     pub fn activate(&self) {
         let satp = self.page_table.token();
@@ -318,6 +325,51 @@ impl MemorySet {
             false
         }
     }
+
+    /// check virtual area used
+    pub fn check_unused(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        for area in &self.areas {
+            if !area.check_unused(start, end) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// add an area
+    pub fn add_virtual(&mut self, start: VirtAddr, end: VirtAddr, port: usize) {
+        println!("add_virtual: start: {}, end: {}, port: {}", start.0, end.0, port);
+        let perm = MapPermission::from_bits_truncate(((port << 1) | (1 << 4)) as u8);
+        println!("perm: {:#x}", perm);
+        let mut area = MapArea::new(start, end, MapType::Framed, perm);
+        // let start = start.floor();
+        // let end = end.ceil();
+        // println!("start: {}, end: {}", start.0, end.0);
+        area.map(&mut self.page_table);
+        // for tmp in start.0..=end.0 {
+        //     let ppn: PhysPageNum;
+        //     let vpn = VirtPageNum(tmp);
+        //     let frame = frame_alloc().unwrap();
+        //     println!("frame ppn: {:#x}, paddr: {:#x}", frame.ppn.0, PhysAddr::from(frame.ppn).0);
+        //     ppn = frame.ppn;
+        //     area.data_frames.insert(vpn, frame);
+        //     let pte_flags = PTEFlags::from_bits(area.map_perm.bits).unwrap();
+        //     self.page_table.map(vpn, ppn, pte_flags);
+        // }
+        self.areas.push(area);
+    }
+
+    /// remove an area
+    pub fn remove_virtual(&mut self, start: VirtAddr, end: VirtAddr) {
+        let start = start.floor();
+        let end = end.ceil();
+        for area in self.areas.iter_mut() {
+            if start.0 == area.vpn_range.get_start().0 && end.0 == area.vpn_range.get_end().0 {
+                area.unmap(&mut self.page_table);
+                area.vpn_range = VPNRange::new(VirtPageNum(0), VirtPageNum(0));
+            }
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -351,6 +403,12 @@ impl MapArea {
             map_perm: another.map_perm,
         }
     }
+    pub fn check_unused(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        let start = start.floor();
+        let end = end.ceil();
+        trace!("check unused: start: {:#x}, end: {:#x}, range start: {:#x}, range end: {:#x}", start.0, end.0, self.vpn_range.get_start().0, self.vpn_range.get_end().0);
+        self.vpn_range.get_start().0 >= end.0 || self.vpn_range.get_end().0 <= start.0
+    }
     pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         let ppn: PhysPageNum;
         match self.map_type {
@@ -358,7 +416,7 @@ impl MapArea {
                 ppn = PhysPageNum(vpn.0);
             }
             MapType::Framed => {
-                let frame = frame_alloc().unwrap();
+                let frame: FrameTracker = frame_alloc().unwrap();
                 ppn = frame.ppn;
                 self.data_frames.insert(vpn, frame);
             }
