@@ -49,9 +49,133 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock flag
+    pub deadlock_flag: bool,
+    /// available
+    pub available: [usize; 100],
+    /// available
+    pub available_sem: [usize; 100],
 }
 
 impl ProcessControlBlockInner {
+    pub fn check_deadlock_sem(&self) -> bool {
+        let flag = self.deadlock_flag;
+        if flag {
+            println!("start check deadlock sem");
+            let mut check: [bool; 100] = [false; 100]; // 下标是任务
+            let mut work: [usize; 100] = [0; 100];  // 下标是mutex_id
+            let n = self.tasks.len();
+            // print!("available: ");
+            for (i, v) in self.available_sem.iter().enumerate() {
+                // print!("{} ", *v);
+                work[i] = *v;
+            }
+            // println!("");
+            loop {
+                let mut modified = false;
+                println!("\x1b[32m checked: {:?} \x1b[0m", check);
+                for (i, task) in self.tasks.iter().enumerate() {
+                    if !check[i] {
+                        if let Some(task) = task {
+                            let mut check_flag = true;
+                            let inner = task.inner_exclusive_access();
+                            for (sem_id, value) in inner.needed_sem.iter().enumerate() {
+                                // if sem_id < 4 {
+                                //     print!("\x1b[32m sem_id: {}, need: {}, allocated: {} \x1b[0m", sem_id, *value, inner.allocated_sem[sem_id]);
+                                // }
+                                if *value > work[sem_id] {
+                                    check_flag = false;
+                                }
+                            }
+                            // println!("");
+                            check[i] = check_flag;
+                            if check_flag {
+                                modified = true;
+                                for sem_id in 0..100 {
+                                    work[sem_id] += inner.allocated_sem[sem_id];
+                                }
+                            }
+                        }
+                    }
+                }
+                if !modified {
+                    break;
+                }
+            }
+            for i in 0..n {
+                if !check[i] {
+                    println!("deadlocked");
+                    return false;
+                }
+            }
+            println!("no deadlocked");
+            true
+        } else {
+            true
+        }
+    }
+    pub fn check_deadlock(&self) -> bool {
+        let flag = self.deadlock_flag;
+        if flag {
+            println!("start check deadlock lock");
+            let mut check: [bool; 100] = [false; 100]; // 下标是任务
+            let mut work: [usize; 100] = [0; 100];  // 下标是mutex_id
+            let n = self.tasks.len();
+            print!("available: ");
+            for (i, v) in self.available.iter().enumerate() {
+                if i < 10 {
+                    print!("{} ", *v);
+                }
+                work[i] = *v;
+            }
+            println!("");
+            loop {
+                let mut modified = false;
+                println!("\x1b[32m checked: {:?} \x1b[0m", check);
+                for (i, task) in self.tasks.iter().enumerate() {
+                    if !check[i] {
+                        if let Some(task) = task {
+                            let mut check_flag = true;
+                            let inner = task.inner_exclusive_access();
+                            for (mutex_id, value) in inner.needed.iter().enumerate() {
+                                if mutex_id < 4 {
+                                    print!("\x1b[32m mutex_id: {}, need: {}, allocated: {} \x1b[0m", mutex_id, *value, inner.allocated[mutex_id]);
+                                }
+                                if *value > work[mutex_id] {
+                                    check_flag = false;
+                                }
+                            }
+                            println!("");
+                            check[i] = check_flag;
+                            if check_flag {
+                                modified = true;
+                                for mutex_id in 0..100 {
+                                    work[mutex_id] += inner.allocated[mutex_id];
+                                }
+                            }
+                        }
+                    }
+                }
+                if !modified {
+                    break;
+                }
+            }
+            for i in 0..n {
+                if !check[i] {
+                    println!("deadlocked");
+                    return false;
+                }
+            }
+            println!("no deadlocked");
+            true
+        } else {
+            true
+        }
+    }
+    /// set deadlock
+    pub fn set_deadlock_flag(&mut self, flag: bool) {
+        self.deadlock_flag = flag;
+    }
     #[allow(unused)]
     /// get the address of app's page table
     pub fn get_user_token(&self) -> usize {
@@ -85,6 +209,10 @@ impl ProcessControlBlockInner {
 }
 
 impl ProcessControlBlock {
+    /// set deadlock flag
+    pub fn set_deadlock_flag(&self, flag: bool) {
+        self.inner.exclusive_access().set_deadlock_flag(flag);
+    }
     /// inner_exclusive_access
     pub fn inner_exclusive_access(&self) -> RefMut<'_, ProcessControlBlockInner> {
         self.inner.exclusive_access()
@@ -119,6 +247,9 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_flag: false,
+                    available: [0; 100],
+                    available_sem: [0; 100],
                 })
             },
         });
@@ -245,6 +376,9 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_flag: false,
+                    available: [0; 100],
+                    available_sem: [0; 100],
                 })
             },
         });

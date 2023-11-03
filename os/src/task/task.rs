@@ -31,6 +31,12 @@ impl TaskControlBlock {
 }
 
 pub struct TaskControlBlockInner {
+    pub mutex_id: usize,
+    pub allocated: [usize; 100],
+    pub needed: [usize; 100],
+    pub sem_id: usize,
+    pub allocated_sem: [usize; 100],
+    pub needed_sem: [usize; 100],
     pub res: Option<TaskUserRes>,
     /// The physical page number of the frame where the trap context is placed
     pub trap_cx_ppn: PhysPageNum,
@@ -70,6 +76,12 @@ impl TaskControlBlock {
             kstack,
             inner: unsafe {
                 UPSafeCell::new(TaskControlBlockInner {
+                    mutex_id: 0,
+                    allocated: [0; 100],
+                    needed: [0; 100],
+                    sem_id: 0,
+                    allocated_sem: [0; 100],
+                    needed_sem: [0; 100],
                     res: Some(res),
                     trap_cx_ppn,
                     task_cx: TaskContext::goto_trap_return(kstack_top),
