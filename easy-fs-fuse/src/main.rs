@@ -61,20 +61,36 @@ fn easy_fs_pack() -> std::io::Result<()> {
     // 4MiB, at most 4095 files
     let efs = EasyFileSystem::create(block_file.clone(), 16384, 1);
     let root_inode = Arc::new(EasyFileSystem::root_inode(&efs));
-    for dir_entry in read_dir(src_path).unwrap() {
+    // for dir_entry in read_dir(src_path).unwrap() {
+    //     let dir_entry = dir_entry.unwrap();
+    //     let path = dir_entry.path();
+    //     // load app data from host file system
+    //     let mut host_file = File::open(&path).unwrap();
+    //     let mut all_data: Vec<u8> = Vec::new();
+    //     host_file.read_to_end(&mut all_data).unwrap();
+    //     // create a file in easy-fs
+    //     let name = path.file_stem().unwrap().to_str().unwrap();
+    //     let inode = root_inode.create(name).unwrap();
+    //     // write data to easy-fs
+    //     inode.write_at(0, all_data.as_slice());
+    // }
+    // // list apps
+    // for app in root_inode.ls() {
+    //     println!("{}", app);
+    // }
+    for dir_entry in read_dir(src_path).unwrap().into_iter() {
         let dir_entry = dir_entry.unwrap();
         let path = dir_entry.path();
-        // load app data from host file system
+        let file_name = dir_entry.file_name().into_string().unwrap();
+        let base_name = &file_name[..file_name.rfind('.').unwrap_or(file_name.len())];
         let mut host_file = File::open(&path).unwrap();
         let mut all_data: Vec<u8> = Vec::new();
         host_file.read_to_end(&mut all_data).unwrap();
         // create a file in easy-fs
-        let name = path.file_stem().unwrap().to_str().unwrap();
-        let inode = root_inode.create(name).unwrap();
+        let inode = root_inode.create(base_name).unwrap();
         // write data to easy-fs
         inode.write_at(0, all_data.as_slice());
     }
-    // list apps
     for app in root_inode.ls() {
         println!("{}", app);
     }
