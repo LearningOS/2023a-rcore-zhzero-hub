@@ -283,7 +283,7 @@ impl ProcessControlBlock {
     }
 
     /// Only support processes with a single thread.
-    pub fn exec(self: &Arc<Self>, elf_data: &[u8], args: Vec<String>) {
+    pub fn exec(self: &Arc<Self>, elf_data: &[u8], _args: Vec<String>) {
         trace!("kernel: exec");
         assert_eq!(self.inner_exclusive_access().thread_count(), 1);
         // memory_set with elf program headers/trampoline/trap context/user stack
@@ -304,29 +304,67 @@ impl ProcessControlBlock {
         // push arguments on user stack
         trace!("kernel: exec .. push arguments on user stack");
         let mut user_sp = task_inner.res.as_mut().unwrap().ustack_top();
-        user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
-        let argv_base = user_sp;
-        let mut argv: Vec<_> = (0..=args.len())
-            .map(|arg| {
-                translated_refmut(
-                    new_token,
-                    (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
-                )
-            })
-            .collect();
-        *argv[args.len()] = 0;
+        println!("0");
+        let mut args = Vec::new();
+        // args.push(String::from_utf8(elf_data.to_vec()).unwrap());
+        args.push(String::from("hello"));
+        let argc_size = core::mem::size_of::<usize>();
+        let argv_addr_size = args.len() * core::mem::size_of::<usize>();
+        let argv_data_size = args.iter().fold(0, |sum, s| sum + s.len() + 1);
+        user_sp -= argc_size;
+        // let argc_addr = user_sp;
+        user_sp -= argv_addr_size;
+        // let argv_addr_addr = user_sp;
+        user_sp -= argv_data_size;
+        user_sp -= user_sp % core::mem::size_of::<usize>();
+        // let argv_data_addr = user_sp;
+        
+        *translated_refmut(new_token, user_sp as *mut usize) = args.len();
+        let argv_base = user_sp + argc_size;
+        let mut argv: Vec<_> = (0..args.len())
+        .map(|arg| {
+            translated_refmut(
+                new_token,
+                (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
+            )
+        })
+        .collect();
+        
+        let mut argv_data_addr = user_sp + argc_size + argv_addr_size;
         for i in 0..args.len() {
-            user_sp -= args[i].len() + 1;
-            *argv[i] = user_sp;
-            let mut p = user_sp;
+            *argv[i] = argv_data_addr;
+            let mut p = argv_data_addr;
             for c in args[i].as_bytes() {
                 *translated_refmut(new_token, p as *mut u8) = *c;
                 p += 1;
             }
             *translated_refmut(new_token, p as *mut u8) = 0;
+            argv_data_addr += args[i].len() + 1;
         }
+
+        // user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
+        // let argv_base = user_sp;
+        // let mut argv: Vec<_> = (0..=args.len())
+        //     .map(|arg| {
+        //         translated_refmut(
+        //             new_token,
+        //             (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
+        //         )
+        //     })
+        //     .collect();
+        // *argv[args.len()] = 0;
+        // for i in 0..args.len() {
+        //     user_sp -= args[i].len() + 1;
+        //     *argv[i] = user_sp;
+        //     let mut p = user_sp;
+        //     for c in args[i].as_bytes() {
+        //         *translated_refmut(new_token, p as *mut u8) = *c;
+        //         p += 1;
+        //     }
+        //     *translated_refmut(new_token, p as *mut u8) = 0;
+        // }
         // make the user_sp aligned to 8B for k210 platform
-        user_sp -= user_sp % core::mem::size_of::<usize>();
+        // user_sp -= user_sp % core::mem::size_of::<usize>();
         // initialize trap_cx
         trace!("kernel: exec .. initialize trap_cx");
         let mut trap_cx = TrapContext::app_init_context(
