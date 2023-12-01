@@ -6,7 +6,7 @@ use super::TaskControlBlock;
 use super::{add_task, SignalFlags};
 use super::{pid_alloc, PidHandle};
 use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{translated_refmut, MemorySet, KERNEL_SPACE};
+use crate::mm::{MemorySet, KERNEL_SPACE};
 use crate::sync::{Condvar, Mutex, Semaphore, UPSafeCell};
 use crate::trap::{trap_handler, TrapContext};
 use alloc::string::String;
@@ -14,6 +14,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use crate::loaders::ElfLoader;
 
 /// Process Control Block
 pub struct ProcessControlBlock {
@@ -304,43 +305,48 @@ impl ProcessControlBlock {
         // push arguments on user stack
         trace!("kernel: exec .. push arguments on user stack");
         let mut user_sp = task_inner.res.as_mut().unwrap().ustack_top();
-        println!("0");
         let mut args = Vec::new();
-        // args.push(String::from_utf8(elf_data.to_vec()).unwrap());
         args.push(String::from("hello"));
-        let argc_size = core::mem::size_of::<usize>();
-        let argv_addr_size = args.len() * core::mem::size_of::<usize>();
-        let argv_data_size = args.iter().fold(0, |sum, s| sum + s.len() + 1);
-        user_sp -= argc_size;
-        // let argc_addr = user_sp;
-        user_sp -= argv_addr_size;
-        // let argv_addr_addr = user_sp;
-        user_sp -= argv_data_size;
-        user_sp -= user_sp % core::mem::size_of::<usize>();
-        // let argv_data_addr = user_sp;
+        let loader: ElfLoader = ElfLoader::new(elf_data).unwrap();
+        let len = args.len();
+        user_sp = loader.init_stack(new_token, user_sp, args);
+        // println!("0");
+        // let mut args = Vec::new();
+        // // args.push(String::from_utf8(elf_data.to_vec()).unwrap());
+        // args.push(String::from("hello"));
+        // let argc_size = core::mem::size_of::<usize>();
+        // let argv_addr_size = args.len() * core::mem::size_of::<usize>();
+        // let argv_data_size = args.iter().fold(0, |sum, s| sum + s.len() + 1);
+        // user_sp -= argc_size;
+        // // let argc_addr = user_sp;
+        // user_sp -= argv_addr_size;
+        // // let argv_addr_addr = user_sp;
+        // user_sp -= argv_data_size;
+        // user_sp -= user_sp % core::mem::size_of::<usize>();
+        // // let argv_data_addr = user_sp;
         
-        *translated_refmut(new_token, user_sp as *mut usize) = args.len();
-        let argv_base = user_sp + argc_size;
-        let mut argv: Vec<_> = (0..args.len())
-        .map(|arg| {
-            translated_refmut(
-                new_token,
-                (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
-            )
-        })
-        .collect();
+        // *translated_refmut(new_token, user_sp as *mut usize) = args.len();
+        // let argv_base = user_sp + argc_size;
+        // let mut argv: Vec<_> = (0..args.len())
+        // .map(|arg| {
+        //     translated_refmut(
+        //         new_token,
+        //         (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
+        //     )
+        // })
+        // .collect();
         
-        let mut argv_data_addr = user_sp + argc_size + argv_addr_size;
-        for i in 0..args.len() {
-            *argv[i] = argv_data_addr;
-            let mut p = argv_data_addr;
-            for c in args[i].as_bytes() {
-                *translated_refmut(new_token, p as *mut u8) = *c;
-                p += 1;
-            }
-            *translated_refmut(new_token, p as *mut u8) = 0;
-            argv_data_addr += args[i].len() + 1;
-        }
+        // let mut argv_data_addr = user_sp + argc_size + argv_addr_size;
+        // for i in 0..args.len() {
+        //     *argv[i] = argv_data_addr;
+        //     let mut p = argv_data_addr;
+        //     for c in args[i].as_bytes() {
+        //         *translated_refmut(new_token, p as *mut u8) = *c;
+        //         p += 1;
+        //     }
+        //     *translated_refmut(new_token, p as *mut u8) = 0;
+        //     argv_data_addr += args[i].len() + 1;
+        // }
 
         // user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
         // let argv_base = user_sp;
@@ -374,8 +380,8 @@ impl ProcessControlBlock {
             task.kstack.get_top(),
             trap_handler as usize,
         );
-        trap_cx.x[10] = args.len();
-        trap_cx.x[11] = argv_base;
+        trap_cx.x[10] = len;
+        trap_cx.x[11] = user_sp;
         *task_inner.get_trap_cx() = trap_cx;
     }
 

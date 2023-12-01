@@ -32,6 +32,8 @@ pub const SYSCALL_SLEEP: usize = 101;
 pub const SYSCALL_YIELD: usize = 124;
 /// kill syscall
 pub const SYSCALL_KILL: usize = 129;
+/// SYSCALL_SET_TID_ADDRESS
+pub const SYSCALL_SET_TID_ADDRESS: usize = 96;
 /*
 /// sigaction syscall
 pub const SYSCALL_SIGACTION: usize = 134;
@@ -100,6 +102,12 @@ pub const SYSCALL_CONDVAR_CREATE: usize = 471;
 pub const SYSCALL_CONDVAR_SIGNAL: usize = 472;
 /// condvar_wait syscallca
 pub const SYSCALL_CONDVAR_WAIT: usize = 473;
+/// condvar_ioctl
+pub const SYSCALL_IOCTL: usize = 29;
+/// condvar writev
+pub const SYSCALL_WRITEV: usize = 66;
+/// condvar exit_group
+pub const SYSCALL_EXIT_GROUP: usize = 94;
 
 mod fs;
 mod process;
@@ -152,6 +160,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 4]) -> isize {
         SYSCALL_CONDVAR_SIGNAL => sys_condvar_signal(args[0]),
         SYSCALL_CONDVAR_WAIT => sys_condvar_wait(args[0], args[1]),
         SYSCALL_KILL => sys_kill(args[0], args[1] as u32),
+        SYSCALL_SET_TID_ADDRESS => sys_getpid(),
+        SYSCALL_IOCTL => 0,
+        SYSCALL_WRITEV => sys_write_v(args[0], args[1] as *mut IoVec, args[2]),
+        SYSCALL_EXIT_GROUP => 0,
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
 }

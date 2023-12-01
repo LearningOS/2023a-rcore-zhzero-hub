@@ -2,6 +2,12 @@ use crate::fs::{make_pipe, open_file, OpenFlags, Stat};
 use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
 use crate::task::{current_process, current_task, current_user_token};
 use alloc::sync::Arc;
+
+pub struct IoVec {
+    pub data: *const u8,
+    pub len: usize,
+}
+
 /// write syscall
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     trace!(
@@ -148,4 +154,40 @@ pub fn sys_unlinkat(_name: *const u8) -> isize {
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
     -1
+}
+
+/// write v
+pub fn sys_write_v(fd: usize, iov: *mut IoVec, iovcnt: usize) -> isize {
+    trace!(
+        "kernel:pid[{}] sys_write",
+        current_task().unwrap().process.upgrade().unwrap().getpid()
+    );
+    let token = current_user_token();
+    let process = current_process();
+    let inner   = process.inner_exclusive_access();
+    if fd >= inner.fd_table.len() {
+        return -1;
+    }
+    if let Some(file) = &inner.fd_table[fd] {
+        if !file.writable() {
+            return -1;
+        }
+        let file = file.clone();
+        // release current task TCB manually to avoid multi-borrow
+        drop(inner);
+        let mut total: isize = 0;
+        for i in 0..iovcnt { 
+            unsafe {
+                let ptr = iov.add(i);
+                let addr = translated_byte_buffer(token, ptr as *const u8, 16);
+                let data = (*(addr[0].as_ptr() as *mut IoVec)).data;
+                let len = (*(addr[0].as_ptr() as *mut IoVec)).len;
+                // let len_addr = translated_byte_buffer(current_user_token(), iov as *const u8, usize::BITS as usize);
+                total += file.write(UserBuffer::new(translated_byte_buffer(token, data, len))) as isize;
+            }
+        }
+        total
+    } else {
+        -1
+    }
 }
